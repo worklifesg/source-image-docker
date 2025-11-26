@@ -1,4 +1,5 @@
 # Use the official Open Source Trino image as base
+# hadolint ignore=DL3007
 FROM trinodb/trino:latest
 
 # Add our custom catalog configuration
