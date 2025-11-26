@@ -19,30 +19,8 @@ env:
   KMS_KEY_ARN: ${{ secrets.KMS_KEY_ARN }}
 
 jobs:
-  discover:
+  security-scan:
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      
-      - id: set-matrix
-        run: |
-          # Find all files matching Dockerfile.*
-          # Extract the suffix (e.g., Dockerfile.trino -> trino)
-          # Create a JSON array for the matrix
-          APPS=$(ls Dockerfile.* | sed 's/Dockerfile.//' | jq -R -s -c 'split("\n")[:-1]')
-          echo "Found apps: $APPS"
-          echo "matrix=$APPS" >> $GITHUB_OUTPUT
-
-  build-sign:
-    needs: discover
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -53,6 +31,66 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2 # Fetch enough history for git diff
+
+      - id: set-matrix
+        run: |
+          # Get changed files
+          # Handle case where HEAD^ might not exist (initial commit)
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          else
+            CHANGED_FILES=$(git ls-tree -r HEAD --name-only)
+          fi
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          APPS_JSON="[]"
+          
+          # Check Trino
+          if echo "$CHANGED_FILES" | grep -q "Dockerfile.trino"; then
+             APPS_JSON=$(echo $APPS_JSON | jq '. + ["trino"]')
+          fi
+
+          # Check Jenkins (Dockerfile or plugins.txt)
+          if echo "$CHANGED_FILES" | grep -qE "Dockerfile.jenkins|plugins.txt"; then
+             APPS_JSON=$(echo $APPS_JSON | jq '. + ["jenkins"]')
+          fi
+          
+          # Fallback: If it's a workflow_dispatch (manual run), build ALL.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+             APPS=$(ls Dockerfile.* | sed 's/Dockerfile.//' | jq -R -s -c 'split("\n")[:-1]')
+             echo "Manual trigger, building all: $APPS"
+             echo "matrix=$APPS" >> $GITHUB_OUTPUT
+          else
+             # If APPS_JSON is empty, we output an empty array which skips the matrix job
+             echo "Matrix: $APPS_JSON"
+             echo "matrix=$APPS_JSON" >> $GITHUB_OUTPUT
+          fi
+
+  build-sign:
+    needs: [discover, security-scan]
+    runs-on: ubuntu-latest
+    if: ${{ needs.discover.outputs.matrix != '[]' && needs.discover.outputs.matrix != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
