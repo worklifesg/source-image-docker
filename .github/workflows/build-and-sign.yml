@@ -53,9 +53,14 @@ jobs:
       - name: Determine Image Tag
         id: tag
         run: |
-          # Use the repository name as the image name (lowercase)
-          # If you have multiple apps in one repo, you would use a matrix strategy or input here.
-          IMAGE_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          # Extract image name from Dockerfile FROM instruction
+          # 1. Get last FROM line (handles multi-stage)
+          # 2. Get second word (image:tag)
+          # 3. Remove tag (after :)
+          # 4. Get basename (after /)
+          IMAGE_NAME=$(grep -i "^[[:space:]]*FROM" Dockerfile | tail -n 1 | awk '{print $2}' | cut -d: -f1 | xargs basename)
+          
+          echo "Detected image name from Dockerfile: $IMAGE_NAME"
           
           # Construct the full repository path
           FULL_REPO_NAME="${ECR_NAMESPACE}/${IMAGE_NAME}"
