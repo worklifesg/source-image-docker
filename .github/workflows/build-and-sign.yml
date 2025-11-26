@@ -19,8 +19,30 @@ env:
   KMS_KEY_ARN: ${{ secrets.KMS_KEY_ARN }}
 
 jobs:
-  build-sign:
+  discover:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      
+      - id: set-matrix
+        run: |
+          # Find all files matching Dockerfile.*
+          # Extract the suffix (e.g., Dockerfile.trino -> trino)
+          # Create a JSON array for the matrix
+          APPS=$(ls Dockerfile.* | sed 's/Dockerfile.//' | jq -R -s -c 'split("\n")[:-1]')
+          echo "Found apps: $APPS"
+          echo "matrix=$APPS" >> $GITHUB_OUTPUT
+
+  build-sign:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -48,19 +70,14 @@ jobs:
       - name: Lint Dockerfile
         run: |
           # Simple lint check using hadolint docker image
-          docker run --rm -i hadolint/hadolint < Dockerfile
+          docker run --rm -i hadolint/hadolint < Dockerfile.${{ matrix.app }}
 
       - name: Determine Image Tag
         id: tag
         run: |
-          # Extract image name from Dockerfile FROM instruction
-          # 1. Get last FROM line (handles multi-stage)
-          # 2. Get second word (image:tag)
-          # 3. Remove tag (after :)
-          # 4. Get basename (after /)
-          IMAGE_NAME=$(grep -i "^[[:space:]]*FROM" Dockerfile | tail -n 1 | awk '{print $2}' | cut -d: -f1 | xargs basename)
+          IMAGE_NAME="${{ matrix.app }}"
           
-          echo "Detected image name from Dockerfile: $IMAGE_NAME"
+          echo "Building image: $IMAGE_NAME"
           
           # Construct the full repository path
           FULL_REPO_NAME="${ECR_NAMESPACE}/${IMAGE_NAME}"
@@ -85,7 +102,7 @@ jobs:
         run: |
           FULL_IMAGE_URI=$ECR_REGISTRY/$FULL_REPO_NAME:$IMAGE_TAG
           
-          docker build -t $FULL_IMAGE_URI .
+          docker build -f Dockerfile.${{ matrix.app }} -t $FULL_IMAGE_URI .
           echo "image_uri=$FULL_IMAGE_URI" >> $GITHUB_OUTPUT
 
       - name: Run Dockle Container Linter
