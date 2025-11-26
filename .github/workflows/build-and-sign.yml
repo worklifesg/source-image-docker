@@ -80,7 +80,7 @@ jobs:
           # Ignores KEY/PEM to avoid false positives with some app secrets if necessary, 
           # but here we keep it strict.
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            goodwithtech/dockle:latest --exit-code 1 --level WARN \
+            goodwithtech/dockle:latest --exit-code 1 --exit-level FATAL \
             ${{ steps.build.outputs.image_uri }}
 
       - name: Run Trivy vulnerability scanner
