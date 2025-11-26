@@ -2,7 +2,7 @@ name: Build, Push and Sign
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
     tags: [ 'v*.*.*' ]
   workflow_dispatch:
 
@@ -141,7 +141,7 @@ jobs:
           echo "Attesting Vulnerability Scan..."
           cosign attest --yes \
             --key "awskms:///${{ env.KMS_KEY_ARN }}" \
-            --type sarif \
+            --type https://cosign.sigstore.dev/attestation/vuln/v1 \
             --predicate trivy-results.sarif \
             --tlog-upload=false \
             $DIGEST
