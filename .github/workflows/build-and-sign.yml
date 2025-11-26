@@ -15,7 +15,6 @@ env:
   # These should be secrets or vars in GitHub
   ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
   ECR_NAMESPACE: ${{ vars.ECR_IMAGE_REPO }}
-  IMAGE_NAME: trino
   SIG_REPO: ${{ vars.ECR_SIG_REPO }}
   KMS_KEY_ARN: ${{ secrets.KMS_KEY_ARN }}
 
@@ -54,6 +53,10 @@ jobs:
       - name: Determine Image Tag
         id: tag
         run: |
+          # Use the repository name as the image name (lowercase)
+          # If you have multiple apps in one repo, you would use a matrix strategy or input here.
+          IMAGE_NAME=$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')
+          
           # Construct the full repository path
           FULL_REPO_NAME="${ECR_NAMESPACE}/${IMAGE_NAME}"
           echo "FULL_REPO_NAME=$FULL_REPO_NAME" >> $GITHUB_ENV
