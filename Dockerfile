@@ -4,7 +4,7 @@ FROM trinodb/trino:latest
 
 # Add our custom catalog configuration
 # This enables the 'memory' connector so we can query data immediately
-COPY etc/catalog/memory.properties /etc/trino/catalog/memory.properties
+COPY --chown=trino:trino etc/catalog/memory.properties /etc/trino/catalog/memory.properties
 
 # The base image already sets up the user and entrypoint
 # We just need to expose the UI port
