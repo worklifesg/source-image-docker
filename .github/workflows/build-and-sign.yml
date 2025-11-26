@@ -1,0 +1,145 @@
+name: Build, Push and Sign
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+
+permissions:
+  id-token: write # Required for OIDC
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  # These should be secrets or vars in GitHub
+  ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+  IMAGE_REPO: ${{ vars.ECR_IMAGE_REPO }}
+  SIG_REPO: ${{ vars.ECR_SIG_REPO }}
+  KMS_KEY_ARN: ${{ secrets.KMS_KEY_ARN }}
+
+jobs:
+  build-sign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.1.1
+
+      - name: Lint Dockerfile
+        run: |
+          # Simple lint check using hadolint docker image
+          docker run --rm -i hadolint/hadolint < Dockerfile
+
+      - name: Determine Image Tag
+        id: tag
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # Release Tag (e.g., v1.0.0)
+            TAG=${GITHUB_REF#refs/tags/}
+          else
+            # CI Build (YYYYMMDD-shortsha)
+            DATE=$(date +'%Y%m%d')
+            SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+            TAG="${DATE}-${SHORT_SHA}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Build Image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          FULL_IMAGE_URI=$ECR_REGISTRY/$IMAGE_REPO:$IMAGE_TAG
+          
+          docker build -t $FULL_IMAGE_URI .
+          echo "image_uri=$FULL_IMAGE_URI" >> $GITHUB_OUTPUT
+
+      - name: Run Dockle Container Linter
+        run: |
+          # Scans the local image for CIS benchmarks and best practices
+          # Ignores KEY/PEM to avoid false positives with some app secrets if necessary, 
+          # but here we keep it strict.
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            goodwithtech/dockle:latest --exit-code 1 --level WARN \
+            ${{ steps.build.outputs.image_uri }}
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build.outputs.image_uri }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Image
+        id: push
+        env:
+          FULL_IMAGE_URI: ${{ steps.build.outputs.image_uri }}
+        run: |
+          docker push $FULL_IMAGE_URI
+          
+          # Output the digest for signing
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $FULL_IMAGE_URI)
+          echo "digest=$DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0.14.3
+
+      - name: Generate SBOM
+        run: |
+          syft "${{ steps.build.outputs.image_uri }}" -o spdx-json=sbom.spdx.json
+
+      - name: Sign Image & Attach Artifacts
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          COSIGN_REPOSITORY: ${{ steps.login-ecr.outputs.registry }}/${{ env.SIG_REPO }}
+        run: |
+          echo "Signing digest: $DIGEST"
+          echo "Storing signature in: $COSIGN_REPOSITORY"
+          
+          # 1. Sign the Image Digest
+          cosign sign --yes \
+            --key "awskms:///${{ env.KMS_KEY_ARN }}" \
+            --tlog-upload=false \
+            $DIGEST
+
+          # 2. Attest SBOM (Software Bill of Materials)
+          echo "Attesting SBOM..."
+          cosign attest --yes \
+            --key "awskms:///${{ env.KMS_KEY_ARN }}" \
+            --type spdxjson \
+            --predicate sbom.spdx.json \
+            --tlog-upload=false \
+            $DIGEST
+
+          # 3. Attest Vulnerability Scan Results (Trivy)
+          echo "Attesting Vulnerability Scan..."
+          cosign attest --yes \
+            --key "awskms:///${{ env.KMS_KEY_ARN }}" \
+            --type sarif \
+            --predicate trivy-results.sarif \
+            --tlog-upload=false \
+            $DIGEST
