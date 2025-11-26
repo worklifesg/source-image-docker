@@ -57,14 +57,18 @@ jobs:
 
           APPS_JSON="[]"
           
-          # Check Trino
-          if echo "$CHANGED_FILES" | grep -q "Dockerfile.trino"; then
-             APPS_JSON=$(echo $APPS_JSON | jq '. + ["trino"]')
-          fi
+          # Dynamic detection: Find any file named Dockerfile.*
+          for file in $CHANGED_FILES; do
+            if [[ "$file" == Dockerfile.* ]]; then
+                APP_NAME="${file#Dockerfile.}"
+                # Add to JSON array (compact format)
+                APPS_JSON=$(echo "$APPS_JSON" | jq -c --arg app "$APP_NAME" '. + [$app] | unique')
+            fi
+          done
 
-          # Check Jenkins (Dockerfile or plugins.txt)
-          if echo "$CHANGED_FILES" | grep -qE "Dockerfile.jenkins|plugins.txt"; then
-             APPS_JSON=$(echo $APPS_JSON | jq '. + ["jenkins"]')
+          # Specific dependency: plugins.txt -> jenkins
+          if echo "$CHANGED_FILES" | grep -q "plugins.txt"; then
+             APPS_JSON=$(echo "$APPS_JSON" | jq -c '. + ["jenkins"] | unique')
           fi
           
           # Fallback: If it's a workflow_dispatch (manual run), build ALL.
