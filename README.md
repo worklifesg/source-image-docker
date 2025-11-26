@@ -21,7 +21,7 @@ To run the pipelines successfully, configure the following in your GitHub Reposi
 ### Variables (Settings > Secrets and variables > Actions > New repository variable)
 | Variable Name | Value Example | Description |
 |---------------|---------------|-------------|
-| `GITHUB_REPO` | `my-org/app-repo` | Your GitHub repository identifier. |
+| `APP_REPO_NAME` | `my-org/app-repo` | Your GitHub repository identifier. |
 
 ## Architecture
 - **Images**: Stored in `my-app-images`
