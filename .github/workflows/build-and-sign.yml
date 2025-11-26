@@ -56,10 +56,10 @@ jobs:
             # Release Tag (e.g., v1.0.0)
             TAG=${GITHUB_REF#refs/tags/}
           else
-            # CI Build (YYYYMMDD-shortsha)
+            # CI Build (ci-YYYYMMDD-shortsha)
             DATE=$(date +'%Y%m%d')
             SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-            TAG="${DATE}-${SHORT_SHA}"
+            TAG="ci-${DATE}-${SHORT_SHA}"
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
