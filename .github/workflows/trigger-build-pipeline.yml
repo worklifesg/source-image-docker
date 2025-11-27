@@ -1,0 +1,12 @@
+name: Trigger Build Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  workflow_dispatch:
+
+jobs:
+  call-build:
+    uses: worklifesg/ecr-image-build-pipeline-trigger/.github/workflows/build-and-sign.yml@main
+    secrets: inherit
