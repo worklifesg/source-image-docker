@@ -6,6 +6,10 @@ on:
     tags: [ 'v*.*.*' ]
   workflow_dispatch:
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   call-build:
     uses: worklifesg/ecr-image-build-pipeline-trigger/.github/workflows/build-and-sign.yml@main
