@@ -9,4 +9,7 @@ on:
 jobs:
   call-build:
     uses: worklifesg/ecr-image-build-pipeline-trigger/.github/workflows/build-and-sign.yml@main
+    with:
+      ecr-namespace: ${{ vars.ECR_IMAGE_REPO }}
+      sig-repo: ${{ vars.ECR_SIG_REPO }}
     secrets: inherit
