@@ -13,9 +13,17 @@ FROM nginx:alpine
 COPY --from=builder /app/index.html /usr/share/nginx/html/index.html
 
 # Security Best Practice: Run as a non-root user
-# Nginx-alpine typically sets up an 'nginx' user automatically.
-# The default 'nginx' user in the official alpine image already runs as non-root
-# if you are only serving static files.
+# Fix permissions to run as non-root
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d /usr/share/nginx/html && \
+    touch /var/run/nginx.pid && \
+    chown -R nginx:nginx /var/run/nginx.pid
+
+# Healthcheck (CIS-DI-0006)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD wget -q --spider http://localhost:80/ || exit 1
+
+# Run as non-root (CIS-DI-0001)
+USER nginx
 
 # Expose port 80 for the web traffic
 EXPOSE 80
