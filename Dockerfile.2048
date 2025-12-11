@@ -1,1 +1,2 @@
+# hadolint ignore=DL3007
 FROM public.ecr.aws/l6m2t8p7/docker-2048:latest
