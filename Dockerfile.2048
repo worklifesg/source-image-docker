@@ -17,8 +17,22 @@ RUN go build -mod=vendor -o bin/hello
 # Create the final environment with the compiled binary.
 FROM alpine:3.20
 # Install any required dependencies.
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
+# Fix DL3018: Pin version
+RUN apk --no-cache add ca-certificates=20240226-r0
+
+# Fix CIS-DI-0001: Run as non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Fix CIS-DI-0006: Add HEALTHCHECK
+# Assuming the app listens on a port (e.g., 8080), otherwise adjust accordingly
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD netstat -an | grep 8080 || exit 1
+
+WORKDIR /home/appuser
+
 # Copy the binary from the builder stage and set it as the default command.
-COPY --from=builder /app/bin/hello /usr/local/bin/
+COPY --from=builder --chown=appuser:appgroup /app/bin/hello /usr/local/bin/
+
+USER appuser
+
 CMD ["hello"]
