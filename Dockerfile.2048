@@ -1,32 +1,31 @@
 # hadolint ignore=DL3007
-# Stage 1: Builder (not strictly necessary for static files, but shows the concept)
+# Stage 1: Builder
 FROM node:20-alpine AS builder
-
 WORKDIR /app
 COPY index.html .
 
 # Stage 2: Runner
-# Use a minimal, security-oriented base image like Nginx-alpine
-FROM nginx:alpine
+# Use clean Alpine to avoid upstream CIS-DI-0010 (KEY_SHA512) issues found in nginx:alpine
+FROM alpine:latest
 
-# Copy the built assets from the builder stage to the Nginx serving directory
-COPY --from=builder /app/index.html /usr/share/nginx/html/index.html
+# Install Nginx
+RUN apk add --no-cache nginx
 
-# Security Best Practice: Run as a non-root user
-# Fix permissions to run as non-root
-RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d /usr/share/nginx/html && \
-    touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid
+# Create pid directory and fix permissions for non-root user
+RUN mkdir -p /run/nginx &&     chown -R nginx:nginx /var/lib/nginx /var/log/nginx /etc/nginx /usr/share/nginx/html /run/nginx
+
+# Configure Nginx to listen on 8080 (non-privileged)
+RUN sed -i 's/listen 80;/listen 8080;/' /etc/nginx/http.d/default.conf
+
+# Copy assets
+COPY --from=builder --chown=nginx:nginx /app/index.html /usr/share/nginx/html/index.html
 
 # Healthcheck (CIS-DI-0006)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -q --spider http://localhost:80/ || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3     CMD wget -q --spider http://localhost:8080/ || exit 1
 
 # Run as non-root (CIS-DI-0001)
 USER nginx
 
-# Expose port 80 for the web traffic
-EXPOSE 80
+EXPOSE 8080
 
-# Command to run Nginx (default in Nginx images)
 CMD ["nginx", "-g", "daemon off;"]
