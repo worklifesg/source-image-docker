@@ -5,6 +5,8 @@ FROM public.ecr.aws/l6m2t8p7/docker-2048:latest AS source
 # Fixes DL3007 (Pin version) and CIS-DI-0001 (Non-root user)
 FROM nginxinc/nginx-unprivileged:1.25-alpine
 
+USER root
+
 # Copy static files from upstream
 # The unprivileged image serves from /usr/share/nginx/html by default
 COPY --from=source /usr/share/nginx/html /usr/share/nginx/html
