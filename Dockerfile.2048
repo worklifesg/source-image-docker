@@ -1,31 +1,24 @@
-# hadolint ignore=DL3007
-# Stage 1: Builder
-FROM node:20-alpine AS builder
+# This is a standard Dockerfile for building a Go app.
+# It is a multi-stage build: the first stage compiles the Go source into a binary, and
+#   the second stage copies only the binary into an alpine base.
+
+# -- Stage 1 -- #
+# Compile the app.
+FROM golang:1.22-alpine as builder
 WORKDIR /app
-COPY index.html .
+# The build context is set to the directory where the repo is cloned.
+# This will copy all files in the repo to /app inside the container.
+# If your app requires the build context to be set to a subdirectory inside the repo, you
+#   can use the source_dir app spec option, see: https://www.digitalocean.com/docs/app-platform/references/app-specification-reference/
+COPY . .
+RUN go build -mod=vendor -o bin/hello
 
-# Stage 2: Runner
-# Use clean Alpine to avoid upstream CIS-DI-0010 (KEY_SHA512) issues found in nginx:alpine
-FROM alpine:latest
-
-# Install Nginx
-RUN apk add --no-cache nginx
-
-# Create pid directory and fix permissions for non-root user
-RUN mkdir -p /run/nginx &&     chown -R nginx:nginx /var/lib/nginx /var/log/nginx /etc/nginx /usr/share/nginx/html /run/nginx
-
-# Configure Nginx to listen on 8080 (non-privileged)
-RUN sed -i 's/listen 80;/listen 8080;/' /etc/nginx/http.d/default.conf
-
-# Copy assets
-COPY --from=builder --chown=nginx:nginx /app/index.html /usr/share/nginx/html/index.html
-
-# Healthcheck (CIS-DI-0006)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3     CMD wget -q --spider http://localhost:8080/ || exit 1
-
-# Run as non-root (CIS-DI-0001)
-USER nginx
-
-EXPOSE 8080
-
-CMD ["nginx", "-g", "daemon off;"]
+# -- Stage 2 -- #
+# Create the final environment with the compiled binary.
+FROM alpine:3.20
+# Install any required dependencies.
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+# Copy the binary from the builder stage and set it as the default command.
+COPY --from=builder /app/bin/hello /usr/local/bin/
+CMD ["hello"]
